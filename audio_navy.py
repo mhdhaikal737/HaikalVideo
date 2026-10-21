@@ -1,12 +1,12 @@
-"""Builds the SFX bed for render_navy.py from the events it logged.
+"""Builds the SFX bed for render_navy.py (or render_watt.py) from the events it logged.
 
-Usage: python3 audio_navy.py SFX.json OUT_SFX.wav
+Usage: python3 audio_navy.py SFX.json OUT_SFX.wav [DURATION_S]
 """
 import sys, json, wave
 import numpy as np
 
 SR = 44100
-DUR = 73.1
+DUR = float(sys.argv[3]) if len(sys.argv) > 3 else 73.1
 rng = np.random.default_rng(7)
 
 def env(n, a=0.004, d=8.0):
