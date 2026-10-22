@@ -364,8 +364,6 @@ def tile_rgba():
     return im
 TILE = tile_rgba()
 _tile_rot = {a: np.array(TILE.rotate(a, expand=True, resample=Image.BICUBIC)).astype(np.float32) / 255 for _, _, a in TILES}
-rng = np.random.default_rng(3)
-GRAIN = [rng.normal(0, 6, (H // 2, W // 2)).astype(np.float32) for _ in range(6)]
 
 _img = {}
 def load(name):
@@ -421,8 +419,6 @@ def b_frame(shot, t):
     for (tx, ty, a) in TILES:
         arr = _tile_rot[a]
         comp(frame, arr, tx - arr.shape[1] // 2, int(ty - arr.shape[0] // 2 + 8 * math.sin(0.9 * t + tx)), alpha=0.9)
-    g = cv2.resize(GRAIN[int(t * FPS) % 6], (W, H))
-    frame = np.clip(frame.astype(np.float32) + g[..., None], 0, 255).astype(np.uint8)
     name, crop, kb, bgc = card
     im = load(name)
     if crop: im = im[crop[1]:crop[3], crop[0]:crop[2]]
@@ -473,6 +469,28 @@ def draw_item(frame, t, it, a_roll, card_xform=None):
     elif k == 'circle': draw_circle(frame, t, it, card_xform)
 
 # ---------------------------------------------------------------- A-roll
+# Gentle global grade for the talking-head footage: soft highlight shoulder, a touch
+# less exposure and saturation. Uniform over the frame (no vignette, no edge darkening).
+def _curve():
+    x = np.arange(256, dtype=np.float32)
+    y = x * 0.93
+    k = 120.0
+    hi = x > k
+    y[hi] = k * 0.93 + (x[hi] - k) * 0.72
+    # tiny S in the mids for a bit of depth without crushing the shadows
+    y = y + 4.0 * np.sin(np.pi * np.clip((x - 40) / 170, 0, 1)) * np.sign(x - 125) * (np.abs(x - 125) < 85)
+    return np.clip(y, 0, 255).astype(np.uint8)
+CURVE = _curve()
+SAT = 0.80
+BARS = (2.68, 3.34)   # colour-bar censor card in the hook stays untouched
+
+def grade(src, t):
+    if BARS[0] <= t < BARS[1]: return src
+    f = cv2.LUT(src, CURVE).astype(np.float32)
+    lum = f @ np.float32([0.299, 0.587, 0.114])
+    f = lum[..., None] + (f - lum[..., None]) * SAT
+    return np.clip(f, 0, 255).astype(np.uint8)
+
 def zoom(src, z, t, t0, cy=820):
     # short ease into the new framing on each cut (punch-in feel), centred on the speaker
     zz = z + 0.035 * (1 - ease((t - t0) / 0.22)) if z > 1.0 else z
@@ -489,6 +507,7 @@ def render(src, t):
     s = shot_at(t)
     if s[0] == 'B':
         return b_frame(s, t)
+    src = grade(src, t)
     if s[0] == 'A':
         frame = zoom(src, s[3], t, s[1]).copy(); items = s[4]
     else:
