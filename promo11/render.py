@@ -32,8 +32,7 @@ ANTON = HERE + '/work/fonts/anton.ttf'
 ARCH = HERE + '/work/fonts/archivo-black.ttf'
 ID = '/usr/share/fonts/opentype/inter/'
 MIX = HERE + '/work/mixkit/'
-GRADE = ('eq=contrast=1.04:brightness=0.025:saturation=1.22:gamma=1.04,'
-         'colorbalance=rs=.02:bs=-.015:rm=.015:bm=-.01,unsharp=5:5:0.45')
+GRADE = 'null'                  # keep the footage's original colour (user request)
 
 _fc = {}
 def font(path, size):
@@ -271,7 +270,7 @@ def still(t):
 def clip(name, off, dur, cx=0.5):
     """Decode a stock clip segment, crop to 9:16 around cx, scale to WxH at the edit fps."""
     vf = (f"crop='min(iw,ih*9/16)':ih:'(iw-min(iw,ih*9/16))*{cx}':0,scale={W}:{H}:flags=lanczos,"
-          f"fps={FPS_N}/{FPS_D},eq=saturation=1.15:brightness=0.02,unsharp=5:5:0.4")
+          f"fps={FPS_N}/{FPS_D}")
     raw = subprocess.run(['ffmpeg', '-v', 'error', '-ss', str(off), '-i', MIX + name, '-t', str(dur + 0.2), '-vf', vf,
                           '-an', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], capture_output=True).stdout
     a = np.frombuffer(raw, np.uint8)
