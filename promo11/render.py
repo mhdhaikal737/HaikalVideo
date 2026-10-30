@@ -1,9 +1,11 @@
-"""PROMO 11.11 — commercial re-edit of the car-audio talking-head promo (IMG_5148.MOV).
+"""PROMO 11.11 — bright festive commercial re-edit of the car-audio talking-head promo (IMG_5148.MOV).
 
-A-roll = graded original footage with punch-in jump cuts and chest captions.
-B-roll = product cards cut from the footage + designed 11.11 / offer / end cards.
+A-roll = brightened original footage with punch-in jump cuts and chest captions.
+B-roll = product cards cut from the footage, Mixkit stock clips (free licence) and designed
+11.11 / offer / end cards in a purple-pink-yellow sale palette, with confetti bursts.
 
-Usage: python3 render.py SRC.MOV OUT_VIDEO_ONLY.mp4  (needs work/fonts/anton.ttf, archivo-black.ttf from @fontsource)      (env TEST=t1,t2 -> work/test.jpg, source times)
+Usage: python3 render.py SRC.MOV OUT_VIDEO_ONLY.mp4      (env TEST=t1,t2 -> work/test.jpg, source times)
+Needs work/fonts/{anton,archivo-black}.ttf (@fontsource) and work/mixkit/hd_{72,41174,4064}.mp4.
 """
 import os, subprocess, sys, math
 import numpy as np, cv2
@@ -16,17 +18,22 @@ FPS_N, FPS_D = 60000, 1001
 FPS = FPS_N / FPS_D
 T0, T1 = 0.60, 28.90            # source range kept (trims dead air head/tail)
 
-RED = (227, 38, 46)
+PURPLE = (96, 66, 224)
+PURPLE_D = (62, 36, 170)
+INKP = (36, 18, 92)
+PINK = (255, 79, 163)
+YELLOW = (255, 225, 77)
+CYAN = (63, 224, 232)
+RED = (230, 36, 44)
 WHITE = (255, 255, 255)
-INK = (16, 16, 18)
-GREY = (170, 170, 176)
+CONF = [YELLOW, PINK, CYAN, WHITE, (140, 110, 255), (255, 150, 60)]
 
 ANTON = HERE + '/work/fonts/anton.ttf'
 ARCH = HERE + '/work/fonts/archivo-black.ttf'
 ID = '/usr/share/fonts/opentype/inter/'
-GRADE = ('eq=contrast=1.07:brightness=-0.012:saturation=1.10,'
-         'colorbalance=rs=.025:gs=.005:bs=-.02:rh=.02:bh=-.025,'
-         'unsharp=5:5:0.45,vignette=angle=PI/5')
+MIX = HERE + '/work/mixkit/'
+GRADE = ('eq=contrast=1.04:brightness=0.025:saturation=1.22:gamma=1.04,'
+         'colorbalance=rs=.02:bs=-.015:rm=.015:bm=-.01,unsharp=5:5:0.45')
 
 _fc = {}
 def font(path, size):
@@ -55,27 +62,48 @@ def text(txt, path, size, fill=WHITE, track=0, shadow=0.55, pad=40):
         d.text((x, pad), c, font=f, fill=fill + (255,)); x += w + track
     bb = im.getbbox()
     im = im.crop((max(bb[0] - pad, 0), max(bb[1] - pad, 0), min(bb[2] + pad, im.width), min(bb[3] + pad, im.height)))
-    if shadow:
-        a = im.getchannel('A').filter(ImageFilter.GaussianBlur(10))
-        sh = Image.new('RGBA', im.size, (0, 0, 0, 0))
-        sh.putalpha(a.point(lambda v: int(v * shadow)))
-        base = Image.new('RGBA', im.size, (0, 0, 0, 0))
-        base.alpha_composite(sh, (0, 6) if im.height > 6 else (0, 0))
-        base.alpha_composite(im)
-        im = base
+    if shadow: im = with_shadow(im, shadow)
     _tc[k] = im
     return im
 
-def plate(txt, path, size, fg=INK, bg=WHITE, padx=30, pady=16, r=14):
-    k = ('plate', txt, path, size, fg, bg)
+def with_shadow(im, op, blur=10, dy=6):
+    a = im.getchannel('A').filter(ImageFilter.GaussianBlur(blur))
+    sh = Image.new('RGBA', im.size, (0, 0, 0, 0))
+    sh.putalpha(a.point(lambda v: int(v * op)))
+    base = Image.new('RGBA', im.size, (0, 0, 0, 0))
+    base.alpha_composite(sh, (0, dy))
+    base.alpha_composite(im)
+    return base
+
+def text3d(txt, path, size, front, side, outline=INKP, depth=14, stroke=9):
+    """Chunky sticker-style 3D type: dark outline, extruded side, bright face."""
+    k = ('3d', txt, path, size, front, side, depth)
+    if k in _tc: return _tc[k]
+    f = font(path, size)
+    bb = f.getbbox(txt, stroke_width=stroke)
+    pad = 40
+    im = Image.new('RGBA', (bb[2] - bb[0] + depth + 2 * pad, bb[3] - bb[1] + depth + 2 * pad), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    x, y = pad - bb[0], pad - bb[1]
+    for j in range(depth, -1, -1):
+        d.text((x + j, y + j), txt, font=f, fill=outline + (255,), stroke_width=stroke, stroke_fill=outline + (255,))
+    for j in range(depth, 0, -1):
+        d.text((x + j, y + j), txt, font=f, fill=side + (255,))
+    d.text((x, y), txt, font=f, fill=front + (255,), stroke_width=stroke, stroke_fill=outline + (255,))
+    d.text((x, y), txt, font=f, fill=front + (255,))
+    im = with_shadow(im, 0.35, 14, 10)
+    _tc[k] = im
+    return im
+
+def pill(txt, path, size, fg=INKP, bg=YELLOW, padx=34, pady=16, outline=INKP):
+    k = ('pill', txt, path, size, fg, bg)
     if k in _tc: return _tc[k]
     t = text(txt, path, size, fg, shadow=0, pad=4)
     w, h = t.width + 2 * padx, t.height + 2 * pady
     im = Image.new('RGBA', (w + 60, h + 60), (0, 0, 0, 0))
-    sh = Image.new('L', im.size, 0)
-    ImageDraw.Draw(sh).rounded_rectangle((30, 38, 30 + w, 38 + h), r, fill=120)
-    im.putalpha(sh.filter(ImageFilter.GaussianBlur(12)))
-    ImageDraw.Draw(im).rounded_rectangle((30, 30, 30 + w, 30 + h), r, fill=bg + (255,))
+    d = ImageDraw.Draw(im)
+    d.rounded_rectangle((36, 38, 30 + w + 6, 30 + h + 8), h // 2, fill=outline + (255,))
+    d.rounded_rectangle((30, 30, 30 + w, 30 + h), h // 2, fill=bg + (255,), outline=outline + (255,), width=5)
     im.alpha_composite(t, (30 + padx, 30 + pady))
     _tc[k] = im
     return im
@@ -94,49 +122,175 @@ def paste(canvas, im, cx, cy, scale=1.0, alpha=1.0, rot=0.0):
     if ex <= sx or ey <= sy: return
     canvas.alpha_composite(im.crop((sx, sy, ex, ey)), (x + sx, y + sy))
 
+# ---------------------------------------------------------------- decorations
+def star_pts(cx, cy, r, inner=0.32):
+    pts = []
+    for j in range(8):
+        a = -math.pi / 2 + j * math.pi / 4
+        rr = r if j % 2 == 0 else r * inner
+        pts.append((cx + rr * math.cos(a), cy + rr * math.sin(a)))
+    return pts
+
+def squiggle(d, x0, y0, length, amp, col, waves=2.5, vertical=False, width=12):
+    pts = []
+    for j in range(60):
+        u = j / 59
+        a = x0 + u * length if not vertical else x0 + amp * math.sin(u * waves * 2 * math.pi)
+        b = y0 + amp * math.sin(u * waves * 2 * math.pi) if not vertical else y0 + u * length
+        pts.append((a, b))
+    d.line(pts, fill=INKP + (255,), width=width + 8, joint='curve')
+    d.line(pts, fill=col + (255,), width=width, joint='curve')
+
+def sale_badge():
+    """Original 11.11 SALE sticker in the user's reference palette (drawn from scratch, no stock art)."""
+    im = Image.new('RGBA', (1000, 780), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    rib = [(95, 330), (905, 255), (930, 560), (70, 610)]
+    d.polygon([(x + 10, y + 12) for x, y in rib], fill=INKP + (255,))
+    d.polygon(rib, fill=PINK + (255,), outline=INKP + (255,), width=10)
+    squiggle(d, 40, 150, 170, 22, CYAN, 2.0)
+    squiggle(d, 800, 640, 170, 20, YELLOW, 2.0)
+    for (cx, cy, r, c) in [(860, 110, 40, CYAN), (130, 560, 34, YELLOW), (900, 420, 24, WHITE), (70, 330, 20, WHITE)]:
+        d.polygon([(x + 4, y + 5) for x, y in star_pts(cx, cy, r)], fill=INKP + (255,))
+        d.polygon(star_pts(cx, cy, r), fill=c + (255,), outline=INKP + (255,))
+    a = text3d('11.11', ARCH, 250, YELLOW, (150, 96, 255), depth=16, stroke=10)
+    b = text3d('SALE', ARCH, 230, WHITE, (150, 96, 255), depth=16, stroke=10)
+    im.alpha_composite(a, (500 - a.width // 2, 10))
+    im.alpha_composite(b, (500 - b.width // 2, 330))
+    return im
+BADGE = sale_badge()
+
+def gift_stamp(size=640):
+    """Distressed rubber stamp reading FREE GIFT (drawn from scratch)."""
+    S = 1000
+    im = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    c = RED + (255,)
+    d.ellipse((60, 60, S - 60, S - 60), outline=c, width=46)
+    d.ellipse((150, 150, S - 150, S - 150), outline=c, width=14)
+    for j in range(16):
+        a = j / 16 * 2 * math.pi
+        if abs(math.sin(a)) < 0.42: continue  # leave room for the banner
+        d.polygon(star_pts(S / 2 + 360 * math.cos(a), S / 2 + 360 * math.sin(a), 30, 0.42), fill=c)
+    ban = Image.new('RGBA', (S, 300), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(ban)
+    bd.rounded_rectangle((10, 20, S - 10, 280), 30, fill=(255, 255, 255, 255), outline=c, width=26)
+    bd.rounded_rectangle((44, 52, S - 44, 248), 18, outline=c, width=8)
+    t = text('FREE GIFT', ANTON, 190, RED, track=6, shadow=0, pad=4)
+    ban.alpha_composite(t, ((S - t.width) // 2, (300 - t.height) // 2))
+    ban = ban.rotate(14, Image.BICUBIC, expand=True)
+    im.alpha_composite(ban, ((S - ban.width) // 2, (S - ban.height) // 2))
+    # grunge: knock random specks out of the ink
+    n = np.random.default_rng(3).random((S // 4, S // 4))
+    n = cv2.resize((n > 0.82).astype(np.uint8) * 255, (S, S), interpolation=cv2.INTER_NEAREST)
+    n = cv2.GaussianBlur(n, (0, 0), 1.2)
+    a = np.asarray(im.getchannel('A')).astype(np.float32) * (1 - n / 255 * 0.85)
+    im.putalpha(Image.fromarray(a.astype(np.uint8)))
+    return with_shadow(im.resize((size, size), Image.LANCZOS), 0.25, 12, 8)
+STAMP = gift_stamp()
+
 # ---------------------------------------------------------------- backgrounds
 rng = np.random.default_rng(11)
-GRAIN = [rng.normal(0, 7, (H // 2, W // 2)).astype(np.float32) for _ in range(6)]
+GRAIN = [rng.normal(0, 5, (H // 2, W // 2)).astype(np.float32) for _ in range(6)]
 
 def grain(arr, i, amt=1.0):
     g = cv2.resize(GRAIN[i % 6], (W, H), interpolation=cv2.INTER_NEAREST)
     return np.clip(arr + g[..., None] * amt, 0, 255)
 
-def radial(c_in, c_out, cx=.5, cy=.42, glow=None):
+def radial(c_in, c_out, cx=.5, cy=.42):
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
-    d = np.sqrt(((xx / W - cx) * 1.0) ** 2 + ((yy / H - cy) * 0.75) ** 2) / 0.75
-    d = np.clip(d, 0, 1)[..., None]
-    a = np.array(c_in, np.float32) * (1 - d) + np.array(c_out, np.float32) * d
-    if glow:
-        gx, gy, gr, gc, ga = glow
-        g = np.exp(-(((xx - gx) ** 2 + (yy - gy) ** 2) / (2 * gr ** 2)))[..., None]
-        a = a * (1 - g * ga) + np.array(gc, np.float32) * g * ga
-    return a
+    d = np.clip(np.sqrt(((xx / W - cx)) ** 2 + ((yy / H - cy) * 0.75) ** 2) / 0.8, 0, 1)[..., None]
+    return np.array(c_in, np.float32) * (1 - d) + np.array(c_out, np.float32) * d
 
-BG_DARK = radial((30, 30, 34), (8, 8, 9), glow=(160, 1700, 420, RED, .35))
-BG_RED = radial((196, 26, 34), (70, 6, 10), cy=.45)
-BG_PAPER = radial((246, 244, 240), (214, 210, 204))
+def halftone(arr, col=WHITE, op=0.16):
+    im = Image.fromarray(arr.astype(np.uint8)).convert('RGBA')
+    ov = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(ov)
+    for gy in range(0, H, 34):
+        for gx in range(0, W, 34):
+            u = max(1 - math.hypot(gx / W, gy / H) / 0.55, 1 - math.hypot(1 - gx / W, 1 - gy / H) / 0.55)
+            if u > 0:
+                r = 2 + 8 * u
+                d.ellipse((gx - r, gy - r, gx + r, gy + r), fill=col + (int(255 * op),))
+    im.alpha_composite(ov)
+    return np.asarray(im.convert('RGB')).astype(np.float32)
 
-# ---------------------------------------------------------------- product stills (graded)
+BG_PURPLE = halftone(radial((132, 100, 250), PURPLE_D))
+BG_PINK = halftone(radial((255, 110, 180), (140, 52, 210), cy=.35))
+BG_YELLOW = halftone(radial((255, 236, 120), (255, 190, 40)), INKP, 0.08)
+
+SPARKS = [(150, 260, 26), (930, 420, 20), (120, 1500, 22), (960, 1650, 30), (880, 180, 16), (230, 1780, 14)]
+def sparkles(cv, ts, col=WHITE):
+    d = ImageDraw.Draw(cv)
+    for n, (x, y, r) in enumerate(SPARKS):
+        s = 0.5 + 0.5 * math.sin(ts * 5 + n * 1.7)
+        if s > 0.15: d.polygon(star_pts(x, y, r * s), fill=col + (230,))
+
+# ---------------------------------------------------------------- confetti
+class Burst:
+    def __init__(self, t0, x, y, n, seed, spread=70, vmin=900, vmax=1900):
+        r = np.random.default_rng(seed)
+        self.t0, self.x, self.y = t0, x, y
+        ang = np.radians(-90 + r.uniform(-spread, spread, n))
+        v = r.uniform(vmin, vmax, n)
+        self.vx, self.vy = v * np.cos(ang), v * np.sin(ang)
+        self.col = [CONF[j] for j in r.integers(0, len(CONF), n)]
+        self.w = r.uniform(12, 24, n); self.h = r.uniform(7, 13, n)
+        self.spin = r.uniform(-9, 9, n); self.flip = r.uniform(6, 14, n); self.ph = r.uniform(0, 6, n)
+        self.round = r.random(n) < 0.25
+    def draw(self, cv, ts, life=2.3):
+        dt = ts - self.t0
+        if dt < 0 or dt > life: return
+        k, g = 1.7, 1500.0
+        dx = self.vx * (1 - math.exp(-k * dt)) / k
+        dy = self.vy * (1 - math.exp(-k * dt)) / k + 0.5 * g * dt * dt * 0.55
+        sz = min(1.0, (life - dt) / 0.5)
+        d = ImageDraw.Draw(cv)
+        for j in range(len(self.vx)):
+            cx, cy = self.x + dx[j] + 18 * math.sin(dt * 4 + self.ph[j]), self.y + dy[j]
+            if not (-30 < cx < W + 30 and -30 < cy < H + 30): continue
+            if self.round[j]:
+                r = 6 * sz; d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=self.col[j] + (255,)); continue
+            a = self.spin[j] * dt + self.ph[j]
+            w = self.w[j] * sz * abs(math.cos(self.flip[j] * dt + self.ph[j])) + 2
+            h = self.h[j] * sz
+            ca, sa = math.cos(a), math.sin(a)
+            pts = [(cx + px * ca - py * sa, cy + px * sa + py * ca) for px, py in
+                   ((-w / 2, -h / 2), (w / 2, -h / 2), (w / 2, h / 2), (-w / 2, h / 2))]
+            d.polygon(pts, fill=self.col[j] + (255,))
+
+BURSTS = [Burst(0.66, 540, 420, 70, 1), Burst(8.04, 540, 1000, 110, 2), Burst(13.88, 540, 1260, 80, 3),
+          Burst(22.08, 540, 980, 100, 4), Burst(28.12, 540, 1000, 110, 5)]
+
+# ---------------------------------------------------------------- media
 def still(t):
     raw = subprocess.run(['ffmpeg', '-v', 'error', '-ss', str(t), '-i', SRC, '-frames:v', '1', '-vf', GRADE,
                           '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], capture_output=True).stdout
     return np.frombuffer(raw, np.uint8).reshape(H, W, 3)
 
-def card_img(arr, box, size=760, r=44):
+def clip(name, off, dur, cx=0.5):
+    """Decode a stock clip segment, crop to 9:16 around cx, scale to WxH at the edit fps."""
+    vf = (f"crop='min(iw,ih*9/16)':ih:'(iw-min(iw,ih*9/16))*{cx}':0,scale={W}:{H}:flags=lanczos,"
+          f"fps={FPS_N}/{FPS_D},eq=saturation=1.15:brightness=0.02,unsharp=5:5:0.4")
+    raw = subprocess.run(['ffmpeg', '-v', 'error', '-ss', str(off), '-i', MIX + name, '-t', str(dur + 0.2), '-vf', vf,
+                          '-an', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], capture_output=True).stdout
+    a = np.frombuffer(raw, np.uint8)
+    return a.reshape(-1, H, W, 3)
+
+def card_img(arr, box, size=740, r=36, border=14):
     x0, y0, x1, y1 = box
     im = Image.fromarray(arr[y0:y1, x0:x1]).resize((size, size), Image.LANCZOS)
     im = im.filter(ImageFilter.UnsharpMask(3, 60, 2))
     m = Image.new('L', (size, size), 0)
     ImageDraw.Draw(m).rounded_rectangle((0, 0, size - 1, size - 1), r, fill=255)
-    out = Image.new('RGBA', (size + 120, size + 120), (0, 0, 0, 0))
-    sh = Image.new('L', out.size, 0)
-    ImageDraw.Draw(sh).rounded_rectangle((60, 78, 60 + size, 78 + size), r, fill=170)
-    out.putalpha(sh.filter(ImageFilter.GaussianBlur(26)))
     im.putalpha(m)
-    out.alpha_composite(im, (60, 60))
-    ImageDraw.Draw(out).rounded_rectangle((60, 60, 60 + size - 1, 60 + size - 1), r, outline=(255, 255, 255, 70), width=3)
-    return out
+    S = size + 2 * border
+    out = Image.new('RGBA', (S + 40, S + 40), (0, 0, 0, 0))
+    d = ImageDraw.Draw(out)
+    d.rounded_rectangle((26, 30, 26 + S, 30 + S), r + border, fill=INKP + (255,))
+    d.rounded_rectangle((20, 20, 20 + S, 20 + S), r + border, fill=WHITE + (255,))
+    out.alpha_composite(im, (20 + border, 20 + border))
+    return with_shadow(out, 0.3, 18, 12)
 
 S36, S19 = still(3.6), still(19.0)
 PROD = {
@@ -148,7 +302,7 @@ PROD = {
 # ---------------------------------------------------------------- edit plan (source seconds)
 # A-roll: (start, end, zoom, [(appear, kind, text)])  kinds: lead | plate | key
 A = [
-    (0.60, 2.90, 1.00, [(0.90, 'lead', 'BARANG-BARANG AUDIO'), (1.98, 'plate', 'DALAM KERETA')]),
+    (0.60, 1.98, 1.00, [(0.90, 'lead', 'BARANG-BARANG AUDIO')]),
     (5.30, 7.32, 1.14, [(5.30, 'lead', 'DEKAT LUAR SANA'), (6.04, 'plate', 'MEMANG MAHAL')]),
     (9.30, 11.80, 1.00, [(9.36, 'lead', 'TURUN HARGA'), (10.42, 'plate', 'KAU-KAU'), (10.78, 'key', 'JATUH GILA')]),
     (15.24, 16.36, 1.14, [(15.24, 'lead', 'MACAM-MACAM'), (15.78, 'plate', 'BARANG AUDIO')]),
@@ -156,162 +310,155 @@ A = [
     (18.48, 19.70, 1.20, [(18.48, 'lead', 'YANG KAU-KAU PUNYA'), (19.30, 'plate', 'MURAH')]),
     (19.70, 21.74, 1.10, [(19.70, 'lead', 'YANG TAK JUMPA'), (20.60, 'plate', 'DEKAT MANA-MANA')]),
     (23.10, 25.24, 1.00, [(23.10, 'lead', 'JADI JUMPA'), (24.00, 'plate', '11.11 NI YA')]),
-    (25.24, 28.10, 1.14, [(25.24, 'lead', 'MASUK LIVE VIDEO'), (27.16, 'plate', 'ADA MURAH JUGA')]),
+    (26.40, 28.10, 1.14, [(26.40, 'lead', 'MASUK LIVE VIDEO'), (27.16, 'plate', 'ADA MURAH JUGA')]),
 ]
 # B-roll: (start, end, kind, params)
 B = [
-    (2.90, 3.95, 'prod', dict(img='2way', idx='01', word='2 WAY', wt=3.68, label='KHUSUSNYA')),
-    (3.95, 4.68, 'prod', dict(img='midbass', idx='02', word='MIDBASS', wt=4.40, label='KHUSUSNYA')),
-    (4.68, 5.30, 'prod', dict(img='sub', idx='03', word='SUBWOOFER', wt=4.78, label='KHUSUSNYA')),
-    (7.32, 9.30, 'sale', dict(lead='TAPI', lt=7.32, big='11.11', bt=8.04, tail='', tt=99)),
-    (11.80, 15.24, 'list', dict(items=[(12.22, 'VOUCHER'), (13.16, 'DISCOUNT'), (13.88, 'FREE GIFT')],
-                                 stamp='MELAMBAK GILA!', st=14.46)),
-    (21.74, 23.10, 'paper', dict(lead='HANYA', lt=21.74, big='11.11', bt=22.08, tail='SAJA!', tt=22.72)),
+    (1.98, 2.90, 'stock', dict(clip='hd_72.mp4', off=6.0, cx=0.8, caps=[(0.0, 'lead', 'BARANG-BARANG AUDIO'), (1.98, 'plate', 'DALAM KERETA')])),
+    (2.90, 3.95, 'prod', dict(img='2way', idx='01', word='2 WAY', wt=3.68, rot=-3)),
+    (3.95, 4.68, 'prod', dict(img='midbass', idx='02', word='MIDBASS', wt=4.40, rot=2.5)),
+    (4.68, 5.30, 'prod', dict(img='sub', idx='03', word='SUBWOOFER', wt=4.78, rot=-2)),
+    (7.32, 9.30, 'sale', dict(lt=7.32, bt=8.04)),
+    (11.80, 15.24, 'list', dict(items=[(12.22, 'VOUCHER'), (13.16, 'DISCOUNT')], st=13.88, mt=14.46)),
+    (21.74, 23.10, 'yellow', dict(lt=21.74, bt=22.08, tt=22.72)),
+    (25.24, 26.40, 'stock', dict(clip='hd_41174.mp4', off=0.8, cx=0.5, caps=[(25.24, 'lead', 'MASUK LIVE VIDEO')])),
     (28.10, 28.90, 'end', {}),
 ]
-CUTS = sorted({s for s, *_ in A + B} | {e for _, e, *_ in A + B}) [1:-1]
-HOOK_END = 2.90
+CUTS = sorted({s for s, *_ in A + B} | {e for _, e, *_ in A + B})[1:-1]
 LIVE_FROM = 25.54
+
+CLIPS = {s: clip(p['clip'], p['off'], e - s, p['cx']) for s, e, k, p in B if k == 'stock'}
+FIREWORKS = clip('hd_4064.mp4', 0.3, 9.30 - 7.32, 0.5)
 
 # ---------------------------------------------------------------- shot renderers
 def captions(cv, lines, ts):
-    imgs = []
-    for at, kind, txt in lines:
-        if kind == 'lead': im = text(txt, ID + 'Inter-ExtraBold.otf', 56, WHITE, track=2)
-        elif kind == 'plate': im = plate(txt, ANTON, 112)
-        else: im = text(txt, ANTON, 120, WHITE, track=2)
-        imgs.append((at, kind, im))
     y = 1110
-    for at, kind, im in imgs:
+    for at, kind, txt in lines:
+        if kind == 'lead': im, h = text(txt, ID + 'Inter-ExtraBold.otf', 56, WHITE, track=2), None
+        elif kind == 'plate': im = pill(txt, ANTON, 104)
+        else: im = text(txt, ANTON, 120, WHITE, track=2)
         h = im.height - (60 if kind == 'plate' else 50)
         cy = y + h / 2
         k = (ts - at) / 0.24
         if k > 0:
-            if kind == 'plate': paste(cv, im, W / 2, cy, scale=0.82 + 0.18 * ease_back(k), alpha=min(k * 2, 1))
+            if kind == 'plate': paste(cv, im, W / 2, cy, scale=0.8 + 0.2 * ease_back(k), alpha=min(k * 2, 1))
             else: paste(cv, im, W / 2, cy + 30 * (1 - ease_out(k)), alpha=ease_out(k))
             if kind == 'key':
-                lw = int((im.width - 120) * ease_out((ts - at - 0.12) / 0.3))
+                full = im.width - 120
+                lw = int(full * ease_out((ts - at - 0.12) / 0.3))
                 if lw > 0:
-                    ImageDraw.Draw(cv).rectangle((W / 2 - (im.width - 120) / 2, cy + h / 2 + 8,
-                                                  W / 2 - (im.width - 120) / 2 + lw, cy + h / 2 + 18), fill=RED + (255,))
+                    ImageDraw.Draw(cv).rounded_rectangle((W / 2 - full / 2, cy + h / 2 + 8, W / 2 - full / 2 + lw, cy + h / 2 + 22),
+                                                         7, fill=PINK + (255,))
         y += h + 14
 
-def top_shade(cv, strength=170, height=560):
-    g = np.linspace(strength, 0, height).astype(np.uint8)
-    a = Image.fromarray(np.repeat(g[:, None], W, 1), 'L')
-    sh = Image.new('RGBA', (W, height), (0, 0, 0, 255)); sh.putalpha(a)
-    cv.alpha_composite(sh, (0, 0))
-
 def hook(cv, ts):
-    k = (ts - T0) / 0.28
-    top_shade(cv)
-    paste(cv, text('PROMO', ID + 'Inter-Bold.otf', 40, WHITE, track=14), W / 2, 150, alpha=ease_out((ts - T0 - 0.15) / 0.3))
-    s = 1.0 + 0.45 * (1 - ease_out(k))
-    paste(cv, text('11.11', ANTON, 250, WHITE, track=6), W / 2, 330, scale=s, alpha=min(1, k * 2))
-    lw = int(380 * ease_out((ts - T0 - 0.3) / 0.4))
-    if lw > 0: ImageDraw.Draw(cv).rectangle((W / 2 - lw / 2, 478, W / 2 + lw / 2, 488), fill=RED + (255,))
+    k = (ts - T0 - 0.04) / 0.34
+    if k > 0: paste(cv, BADGE, W / 2, 400, scale=0.6 * (0.6 + 0.4 * ease_back(k)), alpha=min(1, k * 2.5),
+                    rot=3 * math.sin(ts * 2.2))
 
 def live_badge(cv, ts):
     k = (ts - LIVE_FROM) / 0.3
     if k <= 0: return
-    top_shade(cv, 140, 420)
-    b = Image.new('RGBA', (340, 120), (0, 0, 0, 0))
+    b = Image.new('RGBA', (360, 140), (0, 0, 0, 0))
     d = ImageDraw.Draw(b)
-    d.rounded_rectangle((10, 10, 330, 110), 50, fill=RED + (255,))
+    d.rounded_rectangle((16, 22, 346, 128), 52, fill=INKP + (255,))
+    d.rounded_rectangle((10, 12, 340, 118), 52, fill=RED + (255,), outline=WHITE + (255,), width=5)
     pulse = 0.55 + 0.45 * abs(math.sin(ts * 4.0))
-    d.ellipse((50, 42, 86, 78), fill=(255, 255, 255, int(255 * pulse)))
-    b.alpha_composite(text('LIVE', ARCH, 54, WHITE, shadow=0, pad=2), (108, 30))
-    paste(cv, b, W / 2, 230, scale=0.7 + 0.3 * ease_back(k), alpha=min(1, k * 2))
+    d.ellipse((52, 47, 88, 83), fill=(255, 255, 255, int(255 * pulse)))
+    b.alpha_composite(text('LIVE', ARCH, 56, WHITE, shadow=0, pad=2), (110, 33))
+    paste(cv, b, W / 2, 240, scale=0.7 + 0.3 * ease_back(k), alpha=min(1, k * 2))
 
-def bg_frame(arr, i):
-    return grain(arr.copy(), i, 0.9)
+def bg(arr, i): return Image.fromarray(grain(arr, i, 0.6).astype(np.uint8)).convert('RGBA')
 
 def r_prod(p, ts, s, e, i):
-    cv = Image.fromarray(bg_frame(BG_DARK, i).astype(np.uint8)).convert('RGBA')
+    cv = bg(BG_PURPLE, i)
+    sparkles(cv, ts)
     k = (ts - s) / 0.32
-    kb = 1.0 + 0.05 * (ts - s) / (e - s)
-    paste(cv, PROD[p['img']], W / 2, 830 + 40 * (1 - ease_out(k)), scale=(0.94 + 0.06 * ease_out(k)) * kb, alpha=ease_out(k * 1.5))
-    paste(cv, text(p['label'], ID + 'Inter-SemiBold.otf', 34, RED, track=10, shadow=0), W / 2, 330, alpha=ease_out(k))
-    paste(cv, text(p['idx'] + ' / 03', ID + 'Inter-SemiBold.otf', 30, GREY, track=4, shadow=0), W - 150, 150, alpha=ease_out(k))
+    kb = 1.0 + 0.04 * (ts - s) / (e - s)
+    paste(cv, PROD[p['img']], W / 2, 820 + 60 * (1 - ease_out(k)), scale=(0.9 + 0.1 * ease_back(k)) * kb,
+          alpha=ease_out(k * 1.5), rot=p['rot'])
+    paste(cv, pill('KHUSUSNYA', ARCH, 40), W / 2, 330, scale=0.8 + 0.2 * ease_back(k), alpha=ease_out(k))
+    paste(cv, text(p['idx'] + ' / 03', ID + 'Inter-Bold.otf', 32, WHITE, track=4, shadow=0), W - 150, 150, alpha=ease_out(k))
     kw = (ts - p['wt']) / 0.22
     if kw > 0:
-        paste(cv, text(p['word'], ANTON, 190, WHITE, track=4), W / 2, 1420 + 40 * (1 - ease_out(kw)), alpha=ease_out(kw))
-        lw = int(220 * ease_out((ts - p['wt'] - 0.1) / 0.3))
-        if lw > 0: ImageDraw.Draw(cv).rectangle((W / 2 - lw / 2, 1560, W / 2 + lw / 2, 1570), fill=RED + (255,))
+        paste(cv, text3d(p['word'], ARCH, 128, WHITE, PINK), W / 2, 1400 + 40 * (1 - ease_out(kw)),
+              scale=0.85 + 0.15 * ease_back(kw), alpha=min(1, kw * 2))
     return cv
 
-def big_reveal(bg, p, ts, i, lead_c, big_c, tail_c, streak):
-    arr = bg_frame(bg, i)
-    if streak:  # soft diagonal light sweep
-        yy, xx = np.mgrid[0:H:4, 0:W:4].astype(np.float32)
-        pos = (ts - p['lt']) * 900 - 400
-        band = np.exp(-(((xx + yy * 0.5) - pos) ** 2) / (2 * 120 ** 2)) * 38
-        arr = np.clip(arr + cv2.resize(band, (W, H))[..., None], 0, 255)
+def r_sale(p, ts, s, e, i):
+    base = grain(BG_PURPLE, i, 0.6)
+    fw = FIREWORKS[min(len(FIREWORKS) - 1, int((ts - s) * FPS))].astype(np.float32)
+    arr = 255 - (255 - base) * (255 - fw * 0.85) / 255          # screen blend
     cv = Image.fromarray(arr.astype(np.uint8)).convert('RGBA')
     k = (ts - p['lt']) / 0.25
-    paste(cv, text(p['lead'], ID + 'Inter-Black.otf', 76, lead_c, track=8, shadow=0.3 if streak else 0),
-          W / 2, 640 + 30 * (1 - ease_out(k)), alpha=ease_out(k))
-    kb = (ts - p['bt']) / 0.22
-    if kb > 0:
-        shake = 14 * math.exp(-(ts - p['bt']) * 14) * math.sin((ts - p['bt']) * 90)
-        paste(cv, text(p['big'], ANTON, 420, big_c, track=8, shadow=0.45 if streak else 0.15),
-              W / 2 + shake, 960, scale=1 + 0.5 * (1 - ease_out(kb)), alpha=min(1, kb * 2))
-    else:  # anticipation: pulsing dots
+    kb = (ts - p['bt']) / 0.3
+    if kb <= 0:
+        paste(cv, text3d('TAPI', ARCH, 150, WHITE, PINK), W / 2, 800 + 30 * (1 - ease_out(k)), alpha=ease_out(k))
         for j in range(3):
             a = 0.35 + 0.65 * max(0, math.sin(ts * 9 - j))
-            ImageDraw.Draw(cv).ellipse((W / 2 - 70 + j * 60 - 12, 948, W / 2 - 70 + j * 60 + 12, 972), fill=lead_c + (int(255 * a),))
-    kt = (ts - p['tt']) / 0.25
-    if kt > 0 and p['tail']:
-        paste(cv, text(p['tail'], ANTON if p['tail'].endswith('!') else ID + 'Inter-Black.otf',
-                       150 if p['tail'].endswith('!') else 64, tail_c, track=6, shadow=0.3 if streak else 0),
-              W / 2, 1300 + 30 * (1 - ease_out(kt)), scale=0.8 + 0.2 * ease_back(kt), alpha=ease_out(kt))
+            ImageDraw.Draw(cv).ellipse((W / 2 - 70 + j * 60 - 14, 1000, W / 2 - 70 + j * 60 + 14, 1028), fill=YELLOW + (int(255 * a),))
+    else:
+        paste(cv, text('TAPI', ARCH, 64, WHITE, track=10), W / 2, 520, alpha=1)
+        shake = 14 * math.exp(-(ts - p['bt']) * 12) * math.sin((ts - p['bt']) * 80)
+        paste(cv, BADGE, W / 2 + shake, 1000, scale=0.95 * (0.5 + 0.5 * ease_back(kb)), alpha=min(1, kb * 3),
+              rot=2 * math.sin(ts * 2.5))
     return cv
 
-def tick_icon(size=110):
-    im = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
-    d.ellipse((0, 0, size - 1, size - 1), fill=RED + (255,))
-    d.line([(size * .27, size * .52), (size * .44, size * .68), (size * .74, size * .34)], fill=WHITE + (255,), width=int(size * .1), joint='curve')
-    return im
-TICK = tick_icon()
-
-def stamp_img(txt):
-    t = text(txt, ANTON, 120, RED, track=4, shadow=0, pad=6)
-    w, h = t.width + 70, t.height + 40
-    im = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-    ImageDraw.Draw(im).rounded_rectangle((4, 4, w - 5, h - 5), 18, fill=(255, 255, 255, 235), outline=RED + (255,), width=8)
-    im.alpha_composite(t, (35, 20))
-    return im
-
-def r_list(p, ts, s, e, i, base):
-    small = cv2.resize(base, (W // 8, H // 8), interpolation=cv2.INTER_AREA)
-    blur = cv2.resize(cv2.GaussianBlur(small, (0, 0), 6), (W, H), interpolation=cv2.INTER_LINEAR).astype(np.float32)
-    arr = grain(blur * 0.32 + BG_DARK * 0.55, i, 0.9)
-    cv = Image.fromarray(arr.astype(np.uint8)).convert('RGBA')
+def r_list(p, ts, s, e, i):
+    cv = bg(BG_PINK, i)
+    sparkles(cv, ts, YELLOW)
     k = (ts - s) / 0.25
-    paste(cv, text('ADA', ID + 'Inter-Black.otf', 70, RED, track=12, shadow=0), W / 2, 600, alpha=ease_out(k))
+    paste(cv, pill('ADA', ARCH, 54), W / 2, 420, scale=0.8 + 0.2 * ease_back(k), alpha=ease_out(k))
     for n, (at, word) in enumerate(p['items']):
         kk = (ts - at) / 0.28
         if kk <= 0: continue
-        y = 840 + n * 210
-        x_off = -120 * (1 - ease_out(kk))
-        paste(cv, TICK, 210 + x_off, y, scale=0.6 + 0.4 * ease_back(kk), alpha=min(1, kk * 2))
-        wi = text(word, ANTON, 150, WHITE, track=4)
-        paste(cv, wi, 300 + wi.width / 2 - 40 + x_off, y, alpha=ease_out(kk))
-    ks = (ts - p['st']) / 0.2
+        y = 700 + n * 210
+        x_off = -140 * (1 - ease_out(kk))
+        tick = Image.new('RGBA', (120, 120), (0, 0, 0, 0))
+        td = ImageDraw.Draw(tick)
+        td.ellipse((6, 8, 114, 116), fill=INKP + (255,)); td.ellipse((2, 2, 108, 108), fill=YELLOW + (255,), outline=INKP + (255,), width=5)
+        td.line([(30, 56), (48, 74), (80, 38)], fill=INKP + (255,), width=12, joint='curve')
+        paste(cv, tick, 190 + x_off, y, scale=0.6 + 0.4 * ease_back(kk), alpha=min(1, kk * 2))
+        wi = text3d(word, ARCH, 118, WHITE, PURPLE_D, depth=12, stroke=8)
+        paste(cv, wi, 270 + wi.width / 2 + x_off, y, alpha=min(1, kk * 2))
+    ks = (ts - p['st']) / 0.22
     if ks > 0:
-        paste(cv, stamp_img(p['stamp']), W / 2, 1530, scale=1 + 0.6 * (1 - ease_out(ks)), alpha=min(1, ks * 2), rot=-6)
+        paste(cv, STAMP, W / 2, 1260, scale=1.12 + 0.7 * (1 - ease_out(ks)), alpha=min(1, ks * 2), rot=-6)
+    km = (ts - p['mt']) / 0.25
+    if km > 0:
+        paste(cv, pill('MELAMBAK GILA!', ARCH, 60, INKP, YELLOW), W / 2, 1730, scale=0.7 + 0.3 * ease_back(km), alpha=min(1, km * 2), rot=3)
+    return cv
+
+def r_yellow(p, ts, s, e, i):
+    cv = bg(BG_YELLOW, i)
+    sparkles(cv, ts, WHITE)
+    k = (ts - p['lt']) / 0.25
+    paste(cv, text3d('HANYA', ARCH, 110, WHITE, PINK), W / 2, 600 + 30 * (1 - ease_out(k)), alpha=ease_out(k))
+    kb = (ts - p['bt']) / 0.25
+    if kb > 0:
+        shake = 12 * math.exp(-(ts - p['bt']) * 12) * math.sin((ts - p['bt']) * 80)
+        paste(cv, text3d('11.11', ARCH, 300, PINK, PURPLE, depth=20, stroke=12), W / 2 + shake, 960,
+              scale=1 + 0.45 * (1 - ease_out(kb)), alpha=min(1, kb * 2))
+    kt = (ts - p['tt']) / 0.25
+    if kt > 0:
+        paste(cv, text3d('SAJA!', ARCH, 150, WHITE, PURPLE), W / 2, 1320, scale=0.7 + 0.3 * ease_back(kt), alpha=min(1, kt * 2), rot=-3)
+    return cv
+
+def r_stock(p, ts, s, e, i):
+    fr = CLIPS[s]
+    cv = Image.fromarray(fr[min(len(fr) - 1, int((ts - s) * FPS))]).convert('RGBA')
+    if ts >= LIVE_FROM: live_badge(cv, ts)
+    captions(cv, [(at if at else s, kd, tx) for at, kd, tx in p['caps']], ts)
     return cv
 
 def r_end(ts, s, e, i):
-    cv = Image.fromarray(bg_frame(BG_DARK, i).astype(np.uint8)).convert('RGBA')
-    k = (ts - s) / 0.25
-    paste(cv, text('JUMPA', ID + 'Inter-Black.otf', 64, WHITE, track=14, shadow=0), W / 2, 700, alpha=ease_out(k))
-    paste(cv, text('11.11', ANTON, 360, RED, track=8, shadow=0), W / 2, 930, scale=1 + 0.3 * (1 - ease_out(k)), alpha=min(1, k * 2))
-    lw = int(520 * ease_out((ts - s - 0.15) / 0.4))
-    if lw > 0: ImageDraw.Draw(cv).rectangle((W / 2 - lw / 2, 1130, W / 2 + lw / 2, 1136), fill=(255, 255, 255, 200))
-    paste(cv, text('AUDIO KERETA  ·  LIVE', ID + 'Inter-SemiBold.otf', 36, GREY, track=10, shadow=0),
-          W / 2, 1200, alpha=ease_out((ts - s - 0.25) / 0.3))
+    cv = bg(BG_PURPLE, i)
+    sparkles(cv, ts, YELLOW)
+    k = (ts - s) / 0.3
+    paste(cv, text3d('JUMPA', ARCH, 110, WHITE, PINK), W / 2, 520, alpha=ease_out(k))
+    paste(cv, BADGE, W / 2, 960, scale=0.95 * (0.6 + 0.4 * ease_back(k)), alpha=min(1, k * 2.5), rot=2 * math.sin(ts * 2.5))
+    paste(cv, pill('AUDIO KERETA  ·  LIVE', ARCH, 46, INKP, WHITE), W / 2, 1420,
+          scale=0.8 + 0.2 * ease_back((ts - s - 0.2) / 0.3), alpha=ease_out((ts - s - 0.2) / 0.3))
     return cv
 
 def a_roll(base, z):
@@ -332,21 +479,20 @@ def punch(arr, since):
         acc += cv2.warpAffine(arr, M, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
     return (acc / 3).astype(np.uint8)
 
+R = {'prod': r_prod, 'sale': r_sale, 'list': r_list, 'yellow': r_yellow, 'stock': r_stock}
+
 def frame(base, ts, i):
     for s, e, kind, p in B:
         if s <= ts < e:
-            if kind == 'prod': cv = r_prod(p, ts, s, e, i)
-            elif kind == 'sale': cv = big_reveal(BG_RED, p, ts, i, WHITE, WHITE, WHITE, True)
-            elif kind == 'paper': cv = big_reveal(BG_PAPER, p, ts, i, INK, RED, INK, False)
-            elif kind == 'list': cv = r_list(p, ts, s, e, i, base)
-            else: cv = r_end(ts, s, e, i)
+            cv = r_end(ts, s, e, i) if kind == 'end' else R[kind](p, ts, s, e, i)
             break
     else:
         shot = next((a for a in A if a[0] <= ts < a[1]), A[-1])
         cv = Image.fromarray(a_roll(base, shot[2])).convert('RGBA')
-        if ts < HOOK_END: hook(cv, ts)
+        if ts < 1.98: hook(cv, ts)
         if ts >= LIVE_FROM: live_badge(cv, ts)
         captions(cv, shot[3], ts)
+    for b in BURSTS: b.draw(cv, ts)
     out = np.asarray(cv.convert('RGB'))
     last = max([c for c in CUTS if c <= ts], default=None)
     if last is not None: out = punch(out, ts - last)
