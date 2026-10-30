@@ -1,4 +1,4 @@
-"""Synth music bed + SFX for render.py's edit plan (times in source seconds, shifted by T0).
+"""Synth music bed (+ optional SFX track, not used in the v3 mix) for render.py's edit plan (times in source seconds, shifted by T0).
 
 Usage: python3 audio.py MUSIC.wav SFX.wav
 """
@@ -121,7 +121,6 @@ while t < T1 - 0.3:
 # drop out under the riser, fade out at the end card
 tt = np.arange(N) / SR + T0
 g = np.ones(N)
-g[(tt > DROP[0]) & (tt < DROP[1])] = 0.0
 g = lowpass(g, 0.002)
 g *= np.clip((T1 - tt) / 0.8, 0, 1)
 mus *= g
