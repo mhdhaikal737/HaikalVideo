@@ -3,7 +3,7 @@
 A-roll = graded original footage with punch-in jump cuts and chest captions.
 B-roll = product cards cut from the footage + designed 11.11 / offer / end cards.
 
-Usage: python3 render.py SRC.MOV OUT_VIDEO_ONLY.mp4      (env TEST=t1,t2 -> work/test.jpg, source times)
+Usage: python3 render.py SRC.MOV OUT_VIDEO_ONLY.mp4  (needs work/fonts/anton.ttf, archivo-black.ttf from @fontsource)      (env TEST=t1,t2 -> work/test.jpg, source times)
 """
 import os, subprocess, sys, math
 import numpy as np, cv2
